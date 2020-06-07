@@ -1,0 +1,25 @@
+[package]
+name = "emoji-picker"
+version = "0.1.0"
+authors = ["pomba"]
+edition = "2018"
+keywords = ["emoji", "emoji picker"]
+categories = ["command-line-utilities"]
+readme = "README.md"
+license = "MIT"
+homepage = "https://github.com/pjmp/emoji-picker"
+repository = "https://github.com/pjmp/emoji-picker"
+description = "Interactively search and copy emoji(s) to clipboard"
+
+[dependencies]
+skim = "0.8.1"
+serde_json = "1.0.53"
+anyhow = "1.0.31"
+serde = {version = "1.0.111", features = ["derive"] }
+clipboard-ext = "0.2.0"
+attohttpc = {version = "0.14.0", features = ["json"]}
+
+[profile.release]
+opt-level = 3
+lto = true
+panic = 'abort'
