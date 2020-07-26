@@ -1,23 +1,30 @@
+// general required stuffs
 use std::{
     borrow::Cow,
     env,
     fs::{create_dir_all, File},
     io::BufReader,
-    path::Path,
+    path::{Path, PathBuf},
     sync::Arc,
 };
 
+// error handler
 use anyhow::{bail, Result};
-use attohttpc;
+
+// copy to clipboard stuffs
 use clipboard_ext::prelude::ClipboardProvider;
 use clipboard_ext::x11_fork::ClipboardContext;
+
+// serializing & de-serializing json
 use serde::{Deserialize, Serialize};
+
+// fuzzy filter & ui stuffs
 use skim::{
     prelude::{unbounded, SkimItemReceiver, SkimItemSender, SkimOptionsBuilder},
     AnsiString, Skim, SkimItem,
 };
 
-pub struct CustomSkimItem {
+pub(crate) struct CustomSkimItem {
     inner: String,
 }
 
@@ -37,7 +44,7 @@ impl SkimItem for CustomSkimItem {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct EmojiContainer {
+pub(crate) struct EmojiContainer {
     emoji: String,
     description: String,
     category: String,
@@ -45,7 +52,8 @@ pub struct EmojiContainer {
     tags: Vec<String>,
 }
 
-pub fn run(data_set: Vec<EmojiContainer>) -> Result<()> {
+/// Start `Skim` instance with the given data set.
+pub(crate) fn run(data_set: Vec<EmojiContainer>) -> Result<()> {
     let options = SkimOptionsBuilder::default()
         .height(Some("70%"))
         .reverse(true)
@@ -83,36 +91,56 @@ pub fn run(data_set: Vec<EmojiContainer>) -> Result<()> {
     Ok(())
 }
 
-pub fn fetch_emoji() -> Result<Vec<EmojiContainer>> {
+/// Container for directory & file path of emoji db file.
+pub(crate) struct PathInfo {
+    /// DB root directory
+    dir: PathBuf,
+    /// DB file path
+    file: PathBuf,
+}
+
+/// Return `PathInfo` struct.
+pub(crate) fn get_paths() -> Result<PathInfo> {
     let root_dir = Path::new(&env::var("HOME")?).join(".cache/emoji_picker");
     let file_path = root_dir.join("emoji.json");
 
-    if file_path.exists() {
-        let file = File::open(file_path)?;
+    Ok(PathInfo {
+        dir: root_dir,
+        file: file_path,
+    })
+}
+
+pub(crate) const EMOJI_DB_URL: &str =
+    "https://raw.githubusercontent.com/github/gemoji/master/db/emoji.json";
+
+/// Fetch emoji metadata as json file either from network or local file system.
+pub(crate) fn fetch_emoji() -> Result<Vec<EmojiContainer>> {
+    let paths = get_paths()?;
+
+    if paths.file.exists() {
+        let file = File::open(paths.file)?;
         let reader = BufReader::new(file);
 
         Ok(serde_json::from_reader(reader)?)
     } else {
         println!("Fetching emoji data...");
 
-        let resp =
-            attohttpc::get("https://raw.githubusercontent.com/github/gemoji/master/db/emoji.json")
-                .send()?;
+        let resp = attohttpc::get(EMOJI_DB_URL).send()?;
 
         if resp.is_success() {
             let response: Vec<EmojiContainer> = resp.json()?;
 
-            create_dir_all(root_dir)?;
+            create_dir_all(paths.dir)?;
 
-            serde_json::to_writer(&File::create(file_path)?, &response)?;
+            serde_json::to_writer(&File::create(paths.file)?, &response)?;
 
-            Ok(response)
+            return Ok(response);
+        }
+
+        if let Some(err) = resp.error_for_status().err() {
+            bail!(err.to_string())
         } else {
-            if let Some(err) = resp.error_for_status().err() {
-                bail!(err.to_string())
-            } else {
-                bail!("Unexpected error.")
-            }
+            bail!("Unexpected error.")
         }
     }
 }
